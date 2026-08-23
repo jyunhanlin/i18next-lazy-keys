@@ -1,0 +1,93 @@
+{
+  "name": "i18next-lazy-keys",
+  "version": "0.0.0",
+  "description": "Key-level lazy loading for i18next: ship only the translations a render used, fetch the rest on first use.",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./react": {
+      "import": {
+        "types": "./dist/react/index.d.mts",
+        "default": "./dist/react/index.mjs"
+      },
+      "require": {
+        "types": "./dist/react/index.d.cts",
+        "default": "./dist/react/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "oxlint src/",
+    "format": "oxfmt --write src/",
+    "format:check": "oxfmt --check src/",
+    "typecheck": "tsc --noEmit",
+    "check": "pnpm lint && pnpm format:check && pnpm typecheck",
+    "test:i18next23": "I18NEXT_VERSION=23 vitest run",
+    "test:all": "pnpm test && pnpm test:i18next23"
+  },
+  "simple-git-hooks": {
+    "pre-push": "pnpm check"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jyunhanlin/i18next-lazy-keys.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "i18next",
+    "i18n",
+    "ssr",
+    "lazy-loading",
+    "tree-shaking",
+    "postprocessor",
+    "plugin"
+  ],
+  "peerDependencies": {
+    "i18next": ">=23",
+    "react": ">=16.8.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitest/coverage-v8": "^4.1.11",
+    "i18next": "^26.4.0",
+    "i18next-v23": "npm:i18next@23.10.0",
+    "jsdom": "^30.0.1",
+    "oxfmt": "^0.64.0",
+    "oxlint": "^1.79.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "simple-git-hooks": "^2.13.1",
+    "tsdown": "^0.22.14",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
