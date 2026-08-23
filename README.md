@@ -13,6 +13,7 @@ server  root instance loads full language packs once
 
 client  readInitialStore() seeds `resources`  ──► first paint has everything SSR used, nothing more
         createLazyLoader() fetches any other key the moment t() asks for it (batched, deduped)
+        … and refetches every known key when the language changes (fallbackLng would hide the miss)
 ```
 
 Two things i18next itself does not give you:
@@ -70,6 +71,15 @@ const i18n = await createRequestInstance(root, { lng: 'ja' }) // shares store + 
 
 Why a per-request instance: one shared instance means `changeLanguage()` races between concurrent requests, and a global postProcessor cannot tell requests apart. `createRequestInstance()` is `cloneInstance()` + `changeLanguage()` — the same thing `i18next-http-middleware` does for `req.i18n`.
 
+It is cheap: the clone shares the store and backend, and the collector keeps its record in a `WeakMap` keyed by the clone's translator, so it is garbage-collected with the request — no LRU or TTL to tune.
+
+#### What the inline store contains
+
+- The keys this request's `t()` calls returned — exactly those, in the namespace they resolved in.
+- **For every language in `i18n.languages`** (current language + its `fallbackLng` chain). The browser resolves the same way the server did, so a key the server took from the fallback language must reach the browser too. Payload ≈ used keys × chain length; keep the chain short.
+- Plus `extraKeys`: keys the server render cannot see — client-only UI such as modals, toasts, anything shown after an effect. Without them those keys load lazily after hydration and show `missingValue` (`''`) for one round-trip.
+- `nonce` is passed through to the `<script>` for CSP. The payload goes through `serializeForScript()`, so a value containing `</script>` cannot break out of the tag.
+
 ### Client
 
 ```ts
@@ -99,6 +109,36 @@ await i18next
 
 While a key is loading `t()` returns `''` (configurable via `missingValue`), so users never see raw keys.
 
+Two things the client setup must get right:
+
+- **`react.bindI18nStore: 'added'`.** Lazily loaded keys arrive through `addResourceBundle`, which emits `added` on the store. Without it nothing re-renders when they land.
+- **Read the store before hydration.** `readInitialStore()` is synchronous; call it and `init()` before `hydrateRoot()`, and make sure the inline `<script>` sits in the HTML before your bundle runs — `useServerInsertedHTML` takes care of that in Next.js. Otherwise the first client render lacks keys the server had, and React reports a hydration mismatch.
+
+### Express / Pages Router
+
+`i18next-http-middleware` already hands you a per-request clone as `req.i18n`, so skip `createRequestInstance()`:
+
+```ts
+app.use(i18nextMiddleware.handle(root)) // root: .use(usedKeysCollector), init(withUsedKeysCollector(...))
+
+// after rendering the page with req.i18n
+html = html.replace('</head>', `<script>${buildInitialStoreScript({ i18n: req.i18n })}</script></head>`)
+```
+
+## How lazy loading behaves
+
+`createLazyLoader()` is the client half. Its contract:
+
+1. **First use.** `t('key')` for a key not in the store returns `missingValue(key)` (default `''`) and reports it. Reports within `throttleMs` (100) are batched per language and namespace, fetched with `loadKeys` in chunks of `chunkSize` (60), and written with `addResourceBundle` → react-i18next re-renders (needs `react.bindI18nStore: 'added'`).
+2. **Once per key.** A key is requested at most once per language; concurrent renders asking for the same key share the request.
+3. **Not found.** A key `loadKeys` did not return is stored as `notFound(key)` (default: the key itself) and never asked for again. Return only the keys you have; do not echo keys back.
+4. **Errors.** If `loadKeys` rejects, `onError` is called, the keys are released, and they are retried the next time `t()` asks for them.
+5. **`<Trans>` keys.** Keys that look like `<0>…</0>` markup (react-i18next using children as the key) are never fetched; `t()` returns them unchanged. Override with `skipKey`.
+6. **Language change.** i18next only reports a key as missing when *no* language in the fallback chain has it. After `changeLanguage()`, keys the previous language loaded still resolve through `fallbackLng`, so nothing would be reported and the UI would stay on fallback text. The loader therefore refetches every key already in the store for the new language (`refetchOnLanguageChange`, default true). Keys the backend does not have in the new language are left out of the store, so the fallback keeps serving them. The initial language set by `init()` does not trigger this.
+7. **Plurals.** With a `count`, i18next reports the suffixed keys (`key_one`, `key_other`, …) and that is what `loadKeys` receives. If your backend keeps one entry per key and handles plurals itself, set `saveMissingPlurals: false` in `init()`: the base key is reported instead, and i18next falls back to it for every count.
+
+What the plugin changes on your instance at `init()`: sets `saveMissing: true`; installs a no-op `missingKeyHandler` and a `parseMissingKeyHandler` that returns `missingValue(key)` — **only if you have not set your own**. If you have, yours win; `missingValue` then has no effect, because `parseMissingKeyHandler` is what decides what `t()` returns for a missing key.
+
 ## API
 
 "Server render" = during SSR/RSC on the server, inside a Server Component or the server pass of a Client Component. "Browser" = the client instance after hydration.
@@ -119,8 +159,16 @@ While a key is loading `t()` returns `''` (configurable via `missingValue`), so 
 ## Roadmap
 
 - [ ] `loadGroups` — optional "key in namespace X is missing → fetch all of X" for coarse prefetch.
-- [ ] Plural keys: decide how `saveMissingPlurals` interacts with `loadKeys`.
 - [ ] Next.js App Router example.
+
+## Development
+
+```bash
+pnpm test              # vitest, i18next latest
+pnpm test:i18next23    # same suite on i18next 23.10 (oldest supported peer)
+pnpm check             # oxlint + oxfmt + tsc (also runs on pre-push)
+pnpm build             # tsdown → dist/
+```
 
 ## License
 

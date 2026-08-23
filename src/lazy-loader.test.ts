@@ -79,6 +79,35 @@ describe('createLazyLoader', () => {
     expect(i18n.t('hello')).toBe('hello!')
   })
 
+  it('reports plural keys with their suffixes, and resolves them once loaded', async () => {
+    const { i18n, loadKeys } = await setup()
+    i18n.t('apple', { count: 2 })
+    await vi.advanceTimersByTimeAsync(100)
+    const keys = loadKeys.mock.calls[0][0].keys
+    expect(keys).toEqual(expect.arrayContaining(['apple_one', 'apple_other']))
+    expect(keys.every((k) => k.startsWith('apple_'))).toBe(true)
+    expect(i18n.t('apple', { count: 2 })).toBe('apple_other!')
+  })
+
+  it('reports the base key when saveMissingPlurals is false', async () => {
+    const loadKeys = vi.fn(echo)
+    const i18n = createInstance().use(createLazyLoader({ loadKeys }))
+    await i18n.init({
+      lng: 'en',
+      fallbackLng: 'en',
+      resources: { en: { translation: {} } },
+      saveMissingPlurals: false,
+    })
+    i18n.t('apple', { count: 2 })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(loadKeys).toHaveBeenCalledWith({
+      language: 'en',
+      namespace: 'translation',
+      keys: ['apple'],
+    })
+    expect(i18n.t('apple', { count: 2 })).toBe('apple!')
+  })
+
   it('emits "added" on the store so react-i18next (bindI18nStore: "added") re-renders', async () => {
     const { i18n } = await setup()
     const added = vi.fn()
