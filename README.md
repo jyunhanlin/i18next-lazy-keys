@@ -112,13 +112,12 @@ While a key is loading `t()` returns `''` (configurable via `missingValue`), so 
 | `pickResources(i18n, { keys, languages?, defaultNS? })` | copy just those keys out of the store, `resources`-shaped | both |
 | `buildInitialStore(opts)` / `buildInitialStoreScript(opts)` | used keys + `extraKeys` → store object / inline `<script>` source | server render |
 | `readInitialStore(globalKey?)` | the store the server inlined | browser |
-| `createLazyLoader({ loadKeys, throttleMs?, chunkSize?, missingValue?, notFound?, skipKey?, onError? })` | 3rdParty plugin: key-level lazy loading | browser (client instance) |
+| `createLazyLoader({ loadKeys, throttleMs?, chunkSize?, missingValue?, notFound?, skipKey?, onError?, refetchOnLanguageChange? })` | 3rdParty plugin: key-level lazy loading; refetches known keys after `changeLanguage()` | browser (client instance) |
 | `serializeForScript(value)` | JSON that cannot break out of a `<script>` | both |
 | `i18next-lazy-keys/react` → `InitialStoreScript` | React element for the inline script | server render (from `useServerInsertedHTML` or a Server Component) |
 
 ## Roadmap
 
-- [ ] `languageChanged` refetch — after a switch, keys served by `fallbackLng` never report as missing, so the new language would stay on fallback text. Port the "refetch every key already in the store" step.
 - [ ] `loadGroups` — optional "key in namespace X is missing → fetch all of X" for coarse prefetch.
 - [ ] Plural keys: decide how `saveMissingPlurals` interacts with `loadKeys`.
 - [ ] Next.js App Router example.

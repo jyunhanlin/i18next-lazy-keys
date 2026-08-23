@@ -87,4 +87,99 @@ describe('createLazyLoader', () => {
     await vi.advanceTimersByTimeAsync(100)
     expect(added).toHaveBeenCalledWith('en', 'translation', { hello: 'hello!' })
   })
+
+  describe('on languageChanged', () => {
+    const byLanguage = async ({ language, keys }: LoadKeysArgs) =>
+      Object.fromEntries(keys.map((k) => [k, `${k}@${language}`]))
+
+    it('refetches every known key for the new language — fallbackLng would otherwise hide the miss', async () => {
+      const { i18n, loadKeys } = await setup()
+      loadKeys.mockImplementation(byLanguage)
+      i18n.t('hello')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(i18n.t('hello')).toBe('hello@en')
+
+      await i18n.changeLanguage('ja')
+      expect(i18n.t('hello')).toBe('hello@en') // served by fallbackLng, so no missingKey fires
+      await vi.advanceTimersByTimeAsync(100)
+      expect(loadKeys).toHaveBeenLastCalledWith({
+        language: 'ja',
+        namespace: 'translation',
+        keys: ['hello'],
+      })
+      expect(i18n.t('hello')).toBe('hello@ja')
+    })
+
+    it('leaves keys the backend lacks in the new language on fallback text, and asks only once', async () => {
+      const { i18n, loadKeys } = await setup()
+      loadKeys.mockImplementation(byLanguage)
+      i18n.t('hello')
+      await vi.advanceTimersByTimeAsync(100)
+
+      loadKeys.mockImplementation(async () => ({}))
+      await i18n.changeLanguage('ja')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(i18n.t('hello')).toBe('hello@en')
+      i18n.t('hello')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(loadKeys).toHaveBeenCalledTimes(2) // en once, ja once
+    })
+
+    it('does nothing for the initial language or a no-op changeLanguage', async () => {
+      const loadKeys = vi.fn(byLanguage)
+      const i18n = createInstance().use(createLazyLoader({ loadKeys }))
+      await i18n.init({
+        lng: 'ja',
+        fallbackLng: 'en',
+        resources: { en: { translation: { hello: 'Hello' } } },
+      })
+      await vi.advanceTimersByTimeAsync(100)
+      await i18n.changeLanguage('ja')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(loadKeys).not.toHaveBeenCalled()
+      expect(i18n.t('hello')).toBe('Hello')
+    })
+
+    it('flattens nested resources with keySeparator', async () => {
+      const loadKeys = vi.fn(byLanguage)
+      const i18n = createInstance().use(createLazyLoader({ loadKeys }))
+      await i18n.init({
+        lng: 'en',
+        fallbackLng: 'en',
+        resources: { en: { translation: { nav: { home: 'Home' } } } },
+      })
+      await i18n.changeLanguage('ja')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(loadKeys).toHaveBeenCalledWith({
+        language: 'ja',
+        namespace: 'translation',
+        keys: ['nav.home'],
+      })
+      expect(i18n.t('nav.home')).toBe('nav.home@ja')
+    })
+
+    it('does not ask again for a language it already fetched when switching back', async () => {
+      const { i18n, loadKeys } = await setup()
+      loadKeys.mockImplementation(byLanguage)
+      i18n.t('hello')
+      await vi.advanceTimersByTimeAsync(100)
+      await i18n.changeLanguage('ja')
+      await vi.advanceTimersByTimeAsync(100)
+      await i18n.changeLanguage('en')
+      await vi.advanceTimersByTimeAsync(100)
+      await i18n.changeLanguage('ja')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(loadKeys.mock.calls.map((c) => c[0].language)).toEqual(['en', 'ja'])
+      expect(i18n.t('hello')).toBe('hello@ja')
+    })
+
+    it('can be turned off', async () => {
+      const { i18n, loadKeys } = await setup({ refetchOnLanguageChange: false })
+      i18n.t('hello')
+      await vi.advanceTimersByTimeAsync(100)
+      await i18n.changeLanguage('ja')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(loadKeys).toHaveBeenCalledTimes(1)
+    })
+  })
 })
