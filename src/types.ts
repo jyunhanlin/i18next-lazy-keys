@@ -20,6 +20,31 @@ export type TranslatorRef = object
 export const getTranslator = (instance: i18n): TranslatorRef | undefined =>
   (instance as unknown as { translator?: TranslatorRef }).translator
 
+/** The part of i18n.store this package writes through. */
+export interface StoreRef {
+  addResourceBundle(
+    lng: string,
+    ns: string,
+    bundle: object,
+    deep: boolean,
+    overwrite: boolean,
+  ): void
+}
+
+/**
+ * i18n.store, typed with addResourceBundle — present in i18next 23 and 26, but missing from the
+ * store's public type. Use it instead of `i18n.addResourceBundle` inside a 3rdParty module's
+ * init(): i18next binds the store methods onto the instance only after calling those.
+ */
+export const getStore = (instance: i18n): StoreRef => instance.store as unknown as StoreRef
+
+/** Identity of a key across namespaces, for dedupe. */
+export const usedKeyId = ({ ns, key }: UsedKey): string => JSON.stringify([ns, key])
+
+/** Plain-string keys belong to `defaultNS`. */
+export const toUsedKey = (key: UsedKey | string, defaultNS: string): UsedKey =>
+  typeof key === 'string' ? { ns: defaultNS, key } : key
+
 export const firstNamespace = (ns: unknown, fallback = 'translation'): string => {
   if (typeof ns === 'string') return ns
   if (Array.isArray(ns) && typeof ns[0] === 'string') return ns[0]

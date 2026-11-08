@@ -10,6 +10,8 @@ export { createLazyLoader, type LazyLoaderOptions, type LoadKeysArgs } from './l
 export {
   buildInitialStore,
   buildInitialStoreScript,
+  createInitialStoreFlusher,
+  followInitialStore,
   readInitialStore,
   DEFAULT_GLOBAL_KEY,
   type InitialStoreOptions,

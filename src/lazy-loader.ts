@@ -1,4 +1,5 @@
 import type { i18n, ThirdPartyModule } from 'i18next'
+import { followInitialStore } from './initial-store'
 
 export interface LoadKeysArgs {
   language: string
@@ -27,6 +28,12 @@ export interface LazyLoaderOptions {
    * would stay on fallback text after a switch. Default true.
    */
   refetchOnLanguageChange?: boolean
+  /**
+   * Add the server's inline store chunks to this instance — the ones already on the page and the
+   * ones a streamed page sends later (see `followInitialStore()`). Pass `{ globalKey }` if the
+   * server used a custom one. Default true.
+   */
+  followInitialStore?: boolean | { globalKey: string }
 }
 
 const TRANS_MARKUP = /<\d+>[\s\S]*?<\/\d+>/
@@ -89,6 +96,7 @@ export const createLazyLoader = (options: LazyLoaderOptions): ThirdPartyModule =
     skipKey = (key) => TRANS_MARKUP.test(key),
     onError,
     refetchOnLanguageChange = true,
+    followInitialStore: follow = true,
   } = options
 
   let instance: i18n | undefined
@@ -143,6 +151,7 @@ export const createLazyLoader = (options: LazyLoaderOptions): ThirdPartyModule =
     type: '3rdParty',
     init(i18n: i18n) {
       instance = i18n
+      if (follow) followInitialStore(i18n, follow === true ? undefined : follow.globalKey)
       i18n.options.saveMissing = true
       // i18next's defaults for both handlers are `false` (not undefined), so test truthiness.
       // Without a missingKeyHandler i18next falls through to backendConnector.saveMissing(), which

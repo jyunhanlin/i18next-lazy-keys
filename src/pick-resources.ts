@@ -1,5 +1,5 @@
 import type { i18n } from 'i18next'
-import { firstNamespace, type ResourceStore, type UsedKey } from './types'
+import { firstNamespace, type ResourceStore, toUsedKey, type UsedKey } from './types'
 
 export interface PickResourcesOptions {
   /** Keys to pick. Plain strings are looked up in `defaultNS`. */
@@ -17,7 +17,7 @@ export const pickResources = (
 ): ResourceStore => {
   const lngs = languages ?? instance.languages ?? []
   const ns0 = defaultNS ?? firstNamespace(instance.options.defaultNS)
-  const entries = [...keys].map((k) => (typeof k === 'string' ? { ns: ns0, key: k } : k))
+  const entries = [...keys].map((k) => toUsedKey(k, ns0))
   const out: ResourceStore = {}
   for (const lng of lngs) {
     for (const { ns, key } of entries) {

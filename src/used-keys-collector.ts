@@ -1,9 +1,7 @@
 import type { i18n, InitOptions, PostProcessorModule, TOptions } from 'i18next'
-import { firstNamespace, getTranslator, type TranslatorRef, type UsedKey } from './types'
+import { firstNamespace, getTranslator, type TranslatorRef, type UsedKey, usedKeyId } from './types'
 
 const buckets = new WeakMap<TranslatorRef, Map<string, UsedKey>>()
-
-const entryId = ({ ns, key }: UsedKey): string => JSON.stringify([ns, key])
 
 interface ResolvedInfo {
   /** The key as asked for: `item` for `t('item', { count: 3 })`. */
@@ -48,7 +46,8 @@ export const usedKeysCollector: PostProcessorModule = {
       bucket = new Map()
       buckets.set(translator, bucket)
     }
-    for (const entry of resolveEntries(key, options, translator)) bucket.set(entryId(entry), entry)
+    for (const entry of resolveEntries(key, options, translator))
+      bucket.set(usedKeyId(entry), entry)
     return value
   },
 }

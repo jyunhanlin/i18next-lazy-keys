@@ -1,5 +1,7 @@
 import { createInstance } from 'i18next'
+import { buildInitialStoreScript, DEFAULT_GLOBAL_KEY } from './initial-store'
 import { createLazyLoader, type LazyLoaderOptions, type LoadKeysArgs } from './lazy-loader'
+import { usedKeysCollector, withUsedKeysCollector } from './used-keys-collector'
 
 const echo = async ({ keys }: LoadKeysArgs) =>
   Object.fromEntries(keys.filter((k) => k !== 'unknown').map((k) => [k, `${k}!`]))
@@ -209,6 +211,43 @@ describe('createLazyLoader', () => {
       await i18n.changeLanguage('ja')
       await vi.advanceTimersByTimeAsync(100)
       expect(loadKeys).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('initial store', () => {
+    const globals = window as unknown as Record<string, unknown>
+    beforeEach(() => {
+      delete globals[DEFAULT_GLOBAL_KEY]
+    })
+
+    /** What the server's inline script does for one key. */
+    const pushChunk = async (key: string) => {
+      const server = createInstance().use(usedKeysCollector)
+      await server.init(
+        withUsedKeysCollector({
+          lng: 'en',
+          resources: { en: { translation: { [key]: `${key}.` } } },
+        }),
+      )
+      server.t(key)
+      new Function(buildInitialStoreScript({ i18n: server }))()
+    }
+
+    it('follows the inline store: chunks pushed before and after init land without a fetch', async () => {
+      await pushChunk('early')
+      const { i18n, loadKeys } = await setup()
+      await pushChunk('late')
+
+      expect(i18n.t('early')).toBe('early.')
+      expect(i18n.t('late')).toBe('late.')
+      await vi.advanceTimersByTimeAsync(100)
+      expect(loadKeys).not.toHaveBeenCalled()
+    })
+
+    it('can be turned off', async () => {
+      const { i18n } = await setup({ followInitialStore: false })
+      await pushChunk('late')
+      expect(i18n.t('late')).toBe('')
     })
   })
 })
