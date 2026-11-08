@@ -9,9 +9,10 @@ Key-level lazy loading for [i18next](https://www.i18next.com/). Ship only the tr
 ```
 server  root instance loads full language packs once
         └─ per request: createRequestInstance() ──► render ──► usedKeysCollector records every key t() returned
-                                                              └─ <InitialStoreScript> inlines just those keys
+                                                              └─ inline <script> chunks carry just those keys (one per flush when streaming)
 
 client  readInitialStore() seeds `resources`  ──► first paint has everything SSR used, nothing more
+        chunks streamed in later are added to the store before their boundary hydrates
         createLazyLoader() fetches any other key the moment t() asks for it (batched, deduped)
         … and refetches every known key when the language changes (fallbackLng would hide the miss)
 ```
@@ -64,23 +65,25 @@ const i18n = await createRequestInstance(root, { lng: 'ja' }) // shares store + 
 
 // ...render with <I18nextProvider i18n={i18n}>...
 
-// after the tree has rendered (Next.js: inside useServerInsertedHTML)
+// after the tree has rendered, once
 <InitialStoreScript i18n={i18n} extraKeys={['age_verify_title']} />
-// → <script>window["__I18N_LAZY_KEYS_STORE__"]={"ja":{"translation":{...}},"en":{...}};</script>
+// → <script>(window["__I18N_LAZY_KEYS_STORE__"]=…||[]).push({"ja":{"translation":{...}},"en":{...}});</script>
 ```
 
-In Next.js, `useServerInsertedHTML` calls its callback on every flush of the streamed HTML. Return the script on the first flush only, or the HTML gets one copy per flush:
+#### Streamed HTML (Next.js App Router)
+
+With streaming, `<Suspense>` boundaries render after the first bytes are sent, so one script cannot hold every key. Use a **flusher** instead: each call returns a `<script>` with only the keys used since the last call, or `null` when there is nothing new. Next.js calls `useServerInsertedHTML` on every flush, so pass the flusher straight to it:
 
 ```tsx
-const inserted = useRef(false)
-useServerInsertedHTML(() => {
-  if (inserted.current) return null
-  inserted.current = true
-  return <InitialStoreScript i18n={i18n} />
-})
+import { createInitialStoreScriptFlusher } from 'i18next-lazy-keys/react'
+
+const [flush] = useState(() => createInitialStoreScriptFlusher({ i18n, nonce })) // one per request
+useServerInsertedHTML(flush)
 ```
 
-Keys used inside `<Suspense>` boundaries that resolve after that first flush are not in the script. See [examples/next-app-router](examples/next-app-router) for a full App Router setup, including how a Client Component gets the per-request instance, and its known issues.
+Each script pushes one chunk onto `window.__I18N_LAZY_KEYS_STORE__`. Next.js puts a flush's inserted HTML before that flush's content, so a late boundary's keys reach the browser before React hydrates the boundary. On the client, `createLazyLoader()` adds every chunk to the store as it arrives (see `followInitialStore` below). Without a React element, use `createInitialStoreFlusher()`, which returns the script source.
+
+See [examples/next-app-router](examples/next-app-router) for a full App Router setup, including how a Client Component gets the per-request instance.
 
 Why a per-request instance: one shared instance means `changeLanguage()` races between concurrent requests, and a global postProcessor cannot tell requests apart. `createRequestInstance()` is `cloneInstance()` + `changeLanguage()` — the same thing `i18next-http-middleware` does for `req.i18n`.
 
@@ -150,8 +153,9 @@ html = html.replace('</head>', `<script>${buildInitialStoreScript({ i18n: req.i1
 5. **`<Trans>` keys.** Keys that look like `<0>…</0>` markup (react-i18next using children as the key) are never fetched; `t()` returns them unchanged. Override with `skipKey`.
 6. **Language change.** i18next only reports a key as missing when *no* language in the fallback chain has it. After `changeLanguage()`, keys the previous language loaded still resolve through `fallbackLng`, so nothing would be reported and the UI would stay on fallback text. The loader therefore refetches every key already in the store for the new language (`refetchOnLanguageChange`, default true). Keys the backend does not have in the new language are left out of the store, so the fallback keeps serving them. The initial language set by `init()` does not trigger this.
 7. **Plurals.** With a `count`, i18next reports the suffixed keys (`key_one`, `key_other`, …) and that is what `loadKeys` receives. If your backend keeps one entry per key and handles plurals itself, set `saveMissingPlurals: false` in `init()`: the base key is reported instead, and i18next falls back to it for every count.
+8. **Inline store chunks.** At `init()` the loader adds every chunk the server's inline scripts pushed, and keeps adding chunks that a streamed page sends later — so a late `<Suspense>` boundary finds its keys in the store when it hydrates, with no fetch. Turn it off with `followInitialStore: false`; pass `{ globalKey }` if the server used a custom one.
 
-What the plugin changes on your instance at `init()`: sets `saveMissing: true`; installs a no-op `missingKeyHandler` and a `parseMissingKeyHandler` that returns `missingValue(key)` — **only if you have not set your own**. If you have, yours win; `missingValue` then has no effect, because `parseMissingKeyHandler` is what decides what `t()` returns for a missing key.
+What the plugin changes on your instance at `init()`: follows the inline store (item 8); sets `saveMissing: true`; installs a no-op `missingKeyHandler` and a `parseMissingKeyHandler` that returns `missingValue(key)` — **only if you have not set your own**. If you have, yours win; `missingValue` then has no effect, because `parseMissingKeyHandler` is what decides what `t()` returns for a missing key.
 
 ## API
 
@@ -164,11 +168,14 @@ What the plugin changes on your instance at `init()`: sets `saveMissing: true`; 
 | `getUsedKeys(i18n)` / `clearUsedKeys(i18n)` | read / reset the record for one instance | server render |
 | `createRequestInstance(root, { lng, ...initOptions })` | per-request clone, resolved when `lng` is loaded | server render (per request) |
 | `pickResources(i18n, { keys, languages?, defaultNS? })` | copy just those keys out of the store, `resources`-shaped | both |
-| `buildInitialStore(opts)` / `buildInitialStoreScript(opts)` | used keys + `extraKeys` → store object / inline `<script>` source | server render |
-| `readInitialStore(globalKey?)` | the store the server inlined | browser |
-| `createLazyLoader({ loadKeys, throttleMs?, chunkSize?, missingValue?, notFound?, skipKey?, onError?, refetchOnLanguageChange? })` | 3rdParty plugin: key-level lazy loading; refetches known keys after `changeLanguage()` | browser (client instance) |
+| `buildInitialStore(opts)` / `buildInitialStoreScript(opts)` | used keys + `extraKeys` → store object / inline `<script>` source that pushes it as one chunk | server render |
+| `createInitialStoreFlusher(opts)` | per request: `() => string \| null` — script source for the keys used since the last call; for streamed HTML | server render |
+| `readInitialStore(globalKey?)` | every chunk the server pushed so far, merged | browser |
+| `followInitialStore(i18n, globalKey?)` | adds pushed chunks to `i18n`, now and as they arrive; returns a stop function. `createLazyLoader()` calls it for you | browser (after `init()`) |
+| `createLazyLoader({ loadKeys, throttleMs?, chunkSize?, missingValue?, notFound?, skipKey?, onError?, refetchOnLanguageChange?, followInitialStore? })` | 3rdParty plugin: key-level lazy loading; refetches known keys after `changeLanguage()`; follows the inline store | browser (client instance) |
 | `serializeForScript(value)` | JSON that cannot break out of a `<script>` | both |
-| `i18next-lazy-keys/react` → `InitialStoreScript` | React element for the inline script | server render (from `useServerInsertedHTML` or a Server Component) |
+| `i18next-lazy-keys/react` → `InitialStoreScript` | React element for a one-shot inline script | server render (once, after the tree rendered) |
+| `i18next-lazy-keys/react` → `createInitialStoreScriptFlusher(opts)` | per request: `() => ReactElement \| null` for `useServerInsertedHTML` | server render (every flush) |
 
 ## Roadmap
 

@@ -1,9 +1,9 @@
 'use client'
 
 import type { i18n } from 'i18next'
-import { InitialStoreScript } from 'i18next-lazy-keys/react'
+import { createInitialStoreScriptFlusher } from 'i18next-lazy-keys/react'
 import { useServerInsertedHTML } from 'next/navigation'
-import { type ReactNode, use, useRef, useState } from 'react'
+import { type ReactNode, use, useState } from 'react'
 import { I18nextProvider } from 'react-i18next'
 import { getClientI18n } from './client'
 
@@ -31,15 +31,13 @@ export function I18nProvider({ lng, children }: { lng: string; children: ReactNo
 function Inner({ source, children }: { source: Promise<i18n> | i18n; children: ReactNode }) {
   const i18n = source instanceof Promise ? use(source) : source
 
-  // Next.js runs this callback on every flush of the streamed document. Return the script only
-  // on the first one: by then the shell has rendered, so its keys are recorded. Keys used inside
-  // <Suspense> boundaries that resolve later are NOT in this script — see the README.
-  const inserted = useRef(false)
-  useServerInsertedHTML(() => {
-    if (inserted.current) return null
-    inserted.current = true
-    return <InitialStoreScript i18n={i18n} />
-  })
+  // Next.js runs this callback on every flush of the streamed document. Each call returns a
+  // <script> with only the keys used since the last flush (null when nothing is new), so keys of
+  // late <Suspense> boundaries arrive just before React hydrates those boundaries. The client's
+  // lazy loader adds every chunk to its store as it arrives (followInitialStore).
+  // useState: one flusher per request, created after use() resolved.
+  const [flush] = useState(() => createInitialStoreScriptFlusher({ i18n }))
+  useServerInsertedHTML(flush)
 
   return <I18nextProvider i18n={i18n}>{children}</I18nextProvider>
 }

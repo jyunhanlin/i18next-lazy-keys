@@ -3,7 +3,7 @@
 A minimal Next.js 16 App Router app that uses `i18next-lazy-keys` from Client Components:
 
 - the server renders each request with its own i18next instance (`createRequestInstance`),
-- `<InitialStoreScript>` inlines only the keys that render used,
+- inline scripts carry only the keys that render used, one chunk per streamed flush,
 - the browser starts from that store and fetches every other key on first use (`createLazyLoader`).
 
 ## Run it
@@ -23,7 +23,7 @@ pnpm build && pnpm start
 | File | Runs on | What it does |
 | --- | --- | --- |
 | `app/[lng]/layout.tsx` | server (Server Component) | Root layout. Passes only the `lng` string to `<I18nProvider>`. `force-dynamic` so the page streams. |
-| `app/i18n/provider.tsx` | server SSR pass + browser | **The two answers.** Gets the per-request instance during SSR, places `<InitialStoreScript>`. |
+| `app/i18n/provider.tsx` | server SSR pass + browser | **The two answers.** Gets the per-request instance during SSR, sends the inline store chunks. |
 | `app/i18n/server.ts` | server | Root instance (all languages, `usedKeysCollector`) and `createRequestI18n(lng)`. |
 | `app/i18n/client.ts` | browser | The single client instance: `readInitialStore()` + `createLazyLoader()`. |
 | `app/api/translations/route.ts` | server | The `loadKeys` endpoint. |
@@ -51,20 +51,16 @@ Check that the language packs stay on the server. Every value of the `neverUsed`
 grep -rl NEVER_USED_SENTINEL .next/static | wc -l   # expect 0
 ```
 
-## 2. Where `<InitialStoreScript>` goes
+## 2. Where the inline store script goes
 
-Inside `useServerInsertedHTML`, in the same component that has the resolved instance. Next.js calls that callback on **every flush** of the streamed HTML, so a `useRef` flag returns the script only on the first flush. Without the flag, the HTML gets one copy of the store per flush.
+Inside `useServerInsertedHTML`, in the same component that has the resolved instance. Next.js calls that callback on **every flush** of the streamed HTML. A flusher returns a `<script>` with only the keys used since the last flush, or `null` when nothing is new:
 
 ```tsx
-const inserted = useRef(false)
-useServerInsertedHTML(() => {
-  if (inserted.current) return null
-  inserted.current = true
-  return <InitialStoreScript i18n={i18n} />
-})
+const [flush] = useState(() => createInitialStoreScriptFlusher({ i18n })) // one per request
+useServerInsertedHTML(flush)
 ```
 
-The first flush happens after the shell has rendered, so the shell's keys are recorded. The script lands in `<head>`, before the client bundle runs, and `getClientI18n()` reads it during hydration.
+The first flush carries the shell's keys and lands in `<head>`, before the client bundle runs. A later flush carries the keys of a `<Suspense>` boundary that just resolved. Next.js puts it before that boundary's HTML and the `$RC` script that reveals it, so the chunk is in the page before React hydrates the boundary. Each script pushes one chunk onto `window.__I18N_LAZY_KEYS_STORE__`. On the client, `createLazyLoader()` adds every chunk to the store: the ones already there at `init()`, and the ones that arrive later.
 
 The client instance must finish `init()` before the first client render returns, so `client.ts` sets `initAsync: false`. If `init()` is asynchronous, the first render has no translations and hydration fails.
 
@@ -78,10 +74,9 @@ Verified with `next start` and `next dev` on Next.js 16.4.5, i18next 26.7, and r
 | `description` on `/ja` (ja does not have it) | yes, as the `en` value | Resolves through `fallbackLng`. No mismatch. |
 | `t('item', { count: 3 })` (plural) | yes, as `item_other` | Hydrates without a mismatch. No request. |
 | `dialogBody` (client-only UI) | no | One `/api/translations` request when you open the dialog. To ship it up front instead, pass `extraKeys={['dialogBody']}`. |
-| `streamedTitle` (inside `<Suspense>`, resolves after the first flush) | **no** | **Hydration mismatch** for that boundary. React renders it again on the client, it shows `''`, and the text appears after one request. |
+| `streamedTitle` (inside `<Suspense>`, resolves after the first flush) | yes, in a second chunk sent with that boundary | Hydrates without a mismatch. No request. |
 | `neverUsed` | no | Never requested. |
 
 ## Known issues
 
-- **Keys in `<Suspense>` boundaries that resolve after the first flush are not in the inline store.** These boundaries get a hydration mismatch, which React recovers from by rendering them again on the client. A workaround for now is to list those keys in `extraKeys`. The real fix is to send only the new keys on each flush and to let the client add later chunks to the store. That changes the public API and is not done yet.
 - Switching language uses a full page load (`<a href>`). Client-side navigation to another `[lng]` would need a `changeLanguage()` call, and this example does not cover that.

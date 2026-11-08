@@ -37,19 +37,23 @@ src/
   used-keys-collector.ts  postProcessor + WeakMap<translator, Map<id, UsedKey>>; getUsedKeys / withUsedKeysCollector
   request-instance.ts     createRequestInstance = cloneInstance + await changeLanguage
   pick-resources.ts       store → { lng: { ns: { key: value } } } for a key list
-  initial-store.ts        buildInitialStore / buildInitialStoreScript / readInitialStore (window global)
-  lazy-loader.ts          3rdParty plugin: saveMissing + on('missingKey') → batch → loadKeys → addResourceBundle
+  initial-store.ts        window global = queue of store chunks (each script pushes one): buildInitialStore /
+                          buildInitialStoreScript (one-shot) / createInitialStoreFlusher (new keys per
+                          streamed flush) / readInitialStore (merge) / followInitialStore (apply later pushes)
+  lazy-loader.ts          3rdParty plugin: saveMissing + on('missingKey') → batch → loadKeys → addResourceBundle;
+                          followInitialStore() at init
   serialize.ts            JSON safe inside <script>
-  react/index.ts          <InitialStoreScript> wrapper
+  react/index.ts          <InitialStoreScript> (one-shot) + createInitialStoreScriptFlusher (useServerInsertedHTML)
 ```
 
 ## i18next internals this package leans on (verified against 23.10.0 and 26.4.0 source)
 
 1. **postProcessors are global.** `i18n.use({ type: 'postProcessor' })` writes into one module-level registry shared by every instance — register once, never per request. Per-request scoping comes from the 4th `process()` argument, the **translator**, which `cloneInstance()` creates fresh per clone. `i18n.translator` is not in i18next's types; `types.ts#getTranslator` is the single place that reads it.
-2. **`postProcessPassResolved: true`** makes i18next pass `options.i18nResolved.{usedKey, usedNS}` to postProcessors — exact attribution for `t(['a','b'])` fallbacks and `fallbackNS`. `withUsedKeysCollector()` sets it.
+2. **`postProcessPassResolved: true`** makes i18next pass `options.i18nResolved` to postProcessors. Read `exactUsedKey` (the key in the store, plural/context suffix applied: `item_other`), not `usedKey` (the base key: `item`); both are exact for `t(['a','b'])` fallbacks, and `usedNS` covers `fallbackNS`. `withUsedKeysCollector()` sets the option.
 3. **`missingKey` event** is only emitted when `saveMissing: true`. The defaults for `missingKeyHandler` and `parseMissingKeyHandler` are `false`, not `undefined` — test truthiness, not `??=`. Without a `missingKeyHandler`, i18next falls through to `backendConnector.saveMissing()`, which writes `key: key` into the store and the key stops reporting as missing.
 4. **`added` is emitted on `i18n.store`**, not on the instance (react-i18next's `bindI18nStore` listens there).
 5. `cloneInstance()` shares `store`, `services`, and `backendConnector` state, so already-loaded languages are not fetched again; `changeLanguage()` on the clone resolves once `lng` is in the store.
+6. **3rdParty `init(i18n)` runs before the store methods are bound onto the instance.** Inside a plugin's `init`, `i18n.addResourceBundle` is undefined; use `i18n.store.addResourceBundle` (the store exists and emits `added`). i18next's types omit it on the store; `types.ts#getStore` is the single place that casts it (like `getTranslator` for item 1).
 
 ## Releases
 
