@@ -7,7 +7,15 @@ import {
 } from './used-keys-collector'
 
 const resources = {
-  en: { translation: { hello: 'Hello', bye: 'Bye' }, seo: { title: 'Title' } },
+  en: {
+    translation: {
+      hello: 'Hello',
+      bye: 'Bye',
+      item_one: '{{count}} item',
+      item_other: '{{count}} items',
+    },
+    seo: { title: 'Title' },
+  },
   ja: { translation: { hello: 'こんにちは' } },
 }
 
@@ -33,6 +41,16 @@ describe('usedKeysCollector', () => {
     const i18n = await createRoot()
     i18n.t(['missing', 'bye'])
     expect(getUsedKeys(i18n)).toEqual([{ ns: 'translation', key: 'bye' }])
+  })
+
+  it('records the plural-suffixed key that resolved for t(key, { count })', async () => {
+    const i18n = await createRoot()
+    i18n.t('item', { count: 3 })
+    i18n.t('item', { count: 1 })
+    expect(getUsedKeys(i18n)).toEqual([
+      { ns: 'translation', key: 'item_other' },
+      { ns: 'translation', key: 'item_one' },
+    ])
   })
 
   it('keeps clones apart (one request, one instance)', async () => {

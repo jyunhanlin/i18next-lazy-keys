@@ -6,7 +6,10 @@ const buckets = new WeakMap<TranslatorRef, Map<string, UsedKey>>()
 const entryId = ({ ns, key }: UsedKey): string => JSON.stringify([ns, key])
 
 interface ResolvedInfo {
+  /** The key as asked for: `item` for `t('item', { count: 3 })`. */
   usedKey?: string
+  /** The key that is in the store: `item_other` (plural / context suffix applied). */
+  exactUsedKey?: string
   usedNS?: string
 }
 
@@ -20,7 +23,10 @@ const resolveEntries = (
   const ns = firstNamespace(options.ns ?? defaultNS)
   // With `postProcessPassResolved: true` i18next tells us which key/namespace actually resolved —
   // exact even for `t(['a', 'b'])` fallbacks and `fallbackNS`. Without it, record what was asked for.
-  if (resolved?.usedKey !== undefined) return [{ ns: resolved.usedNS ?? ns, key: resolved.usedKey }]
+  // Prefer `exactUsedKey`: it carries the plural/context suffix, so it names the entry the store
+  // (and the browser) needs. `usedKey` is the base key, which pickResources() would not find.
+  const resolvedKey = resolved?.exactUsedKey ?? resolved?.usedKey
+  if (resolvedKey !== undefined) return [{ ns: resolved?.usedNS ?? ns, key: resolvedKey }]
   return (Array.isArray(key) ? key : [key]).map((k) => ({ ns, key: k }))
 }
 
