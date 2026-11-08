@@ -1,0 +1,10 @@
+{
+  "title": "i18next-lazy-keys デモ",
+  "greeting": "こんにちは、{{name}}！",
+  "item_other": "{{count}} 件",
+  "switchLanguage": "English",
+  "openDialog": "ダイアログを開く",
+  "dialogBody": "この文はインラインストアにありませんでした。lazy loader が取得しました。",
+  "streamedTitle": "このセクションはシェルの後にストリーミングされました。",
+  "neverUsed": "NEVER_USED_SENTINEL_ja"
+}

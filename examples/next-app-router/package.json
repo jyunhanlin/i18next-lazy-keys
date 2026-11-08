@@ -1,0 +1,24 @@
+{
+  "name": "i18next-lazy-keys-example-next-app-router",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
+  "dependencies": {
+    "i18next": "^26.4.0",
+    "i18next-lazy-keys": "file:../..",
+    "next": "16.4.5",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-i18next": "^17.1.13"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "typescript": "^5.9.3"
+  }
+}

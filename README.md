@@ -69,6 +69,19 @@ const i18n = await createRequestInstance(root, { lng: 'ja' }) // shares store + 
 // → <script>window["__I18N_LAZY_KEYS_STORE__"]={"ja":{"translation":{...}},"en":{...}};</script>
 ```
 
+In Next.js, `useServerInsertedHTML` calls its callback on every flush of the streamed HTML. Return the script on the first flush only, or the HTML gets one copy per flush:
+
+```tsx
+const inserted = useRef(false)
+useServerInsertedHTML(() => {
+  if (inserted.current) return null
+  inserted.current = true
+  return <InitialStoreScript i18n={i18n} />
+})
+```
+
+Keys used inside `<Suspense>` boundaries that resolve after that first flush are not in the script. See [examples/next-app-router](examples/next-app-router) for a full App Router setup, including how a Client Component gets the per-request instance, and its known issues.
+
 Why a per-request instance: one shared instance means `changeLanguage()` races between concurrent requests, and a global postProcessor cannot tell requests apart. `createRequestInstance()` is `cloneInstance()` + `changeLanguage()` — the same thing `i18next-http-middleware` does for `req.i18n`.
 
 It is cheap: the clone shares the store and backend, and the collector keeps its record in a `WeakMap` keyed by the clone's translator, so it is garbage-collected with the request — no LRU or TTL to tune.
@@ -113,6 +126,7 @@ Two things the client setup must get right:
 
 - **`react.bindI18nStore: 'added'`.** Lazily loaded keys arrive through `addResourceBundle`, which emits `added` on the store. Without it nothing re-renders when they land.
 - **Read the store before hydration.** `readInitialStore()` is synchronous; call it and `init()` before `hydrateRoot()`, and make sure the inline `<script>` sits in the HTML before your bundle runs — `useServerInsertedHTML` takes care of that in Next.js. Otherwise the first client render lacks keys the server had, and React reports a hydration mismatch.
+- **Make `init()` synchronous when it runs during render.** The Next.js App Router has no `hydrateRoot()` call for you to put `init()` in front of, so the client instance is created during the first client render. Pass `initAsync: false` (i18next ≥ 24; `initImmediate: false` on 23), so `t()` has the store before that render returns. See [examples/next-app-router](examples/next-app-router).
 
 ### Express / Pages Router
 
@@ -159,7 +173,7 @@ What the plugin changes on your instance at `init()`: sets `saveMissing: true`; 
 ## Roadmap
 
 - [ ] `loadGroups` — optional "key in namespace X is missing → fetch all of X" for coarse prefetch.
-- [ ] Next.js App Router example.
+- [x] Next.js App Router example: [examples/next-app-router](examples/next-app-router).
 
 ## Development
 

@@ -1,0 +1,12 @@
+{
+  "title": "i18next-lazy-keys demo",
+  "greeting": "Hello, {{name}}!",
+  "description": "The server rendered this text and put it in the inline store.",
+  "item_one": "{{count}} item",
+  "item_other": "{{count}} items",
+  "switchLanguage": "日本語",
+  "openDialog": "Open dialog",
+  "dialogBody": "This text was not in the inline store. The lazy loader fetched it.",
+  "streamedTitle": "This section streamed in after the shell.",
+  "neverUsed": "NEVER_USED_SENTINEL_en"
+}

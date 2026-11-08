@@ -1,0 +1,2 @@
+# Own workspace root, so pnpm does not treat this folder as part of the library's workspace.
+packages: []
